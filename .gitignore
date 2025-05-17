@@ -1,0 +1,7 @@
+upload/*
+!.gitignore
+.venv
+decrypted_pcaps
+build
+dist
+app.spec
