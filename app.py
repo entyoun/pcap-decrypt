@@ -7,11 +7,14 @@ from pathlib import Path
 import shutil
 import re
 
-# Try to import tkinterdnd2, but make it optional
+# Import tkinterdnd2 for drag and drop support
 try:
+    import tkinterdnd2
     from tkinterdnd2 import TkinterDnD, DND_FILES
     HAS_DND = True
 except ImportError:
+    print("tkinterdnd2 not found. Drag and drop will be disabled.")
+    print("To enable it, run: pip install tkinterdnd2")
     HAS_DND = False
 
 

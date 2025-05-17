@@ -27,6 +27,58 @@ A simple GUI application for decrypting PCAP files using Wireshark's tshark util
   ```
   Note: Without this package, you can still add files using the "Add Files" button.
 
+## For Users Without Python
+
+If you don't have Python installed, follow these steps:
+
+### Windows
+1. Download and install Python from the official website:
+   - Visit [Python Downloads](https://www.python.org/downloads/)
+   - Click "Download Python" (get the latest stable version)
+   - **IMPORTANT**: During installation, check the box that says "Add Python to PATH"
+   - Complete the installation
+
+2. Verify Python installation:
+   - Open Command Prompt (press Win+R, type `cmd`, and press Enter)
+   - Run: `python --version`
+   - Run: `pip --version`
+   - Both commands should show version numbers without errors
+
+3. Proceed with the [Installation](#installation) instructions below
+
+### macOS
+1. Install Homebrew (if not already installed):
+   ```bash
+   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+   ```
+
+2. Install Python:
+   ```bash
+   brew install python
+   ```
+
+3. Verify Python installation:
+   - Open Terminal
+   - Run: `python3 --version`
+   - Run: `pip3 --version`
+
+4. Proceed with the [Installation](#installation) instructions below
+
+### Linux (Debian/Ubuntu)
+1. Open Terminal and run:
+   ```bash
+   sudo apt update
+   sudo apt install python3 python3-pip python3-venv
+   ```
+
+2. Verify installation:
+   ```bash
+   python3 --version
+   pip3 --version
+   ```
+
+3. Proceed with the [Installation](#installation) instructions below
+
 ## Installation
 
 1. Clone this repository:
