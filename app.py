@@ -197,9 +197,12 @@ class PcapDecrypterApp:
             self.root.dnd_bind('<<Drop>>', self.on_drop)
     
     def browse_files(self):
+        # Set initial directory to the Downloads folder
+        initial_dir = os.path.join(os.path.expanduser('~'), 'Downloads')
         file_paths = filedialog.askopenfilenames(
             title="Select PCAP Files",
-            filetypes=[("PCAP files", "*.pcap"), ("All files", "*.*")]
+            initialdir=initial_dir,  # Start in Downloads folder
+            filetypes=[("PCAP files", "*.pcap* .pcap0 .pcap1 .pcap2 .pcap3 .pcap4 .pcap5 .pcap6 .pcap7 .pcap8 .pcap9"), ("All files", "*")]
         )
         if file_paths:
             self.add_files(file_paths)
@@ -208,7 +211,12 @@ class PcapDecrypterApp:
         """Add files to the list if they're not already there"""
         count_added = 0
         for file_path in file_paths:
-            if file_path and file_path not in self.selected_files and file_path.lower().endswith('.pcap'):
+            # Convert to absolute path and normalize
+            file_path = os.path.abspath(os.path.normpath(file_path))
+            if (file_path and 
+                file_path not in self.selected_files and 
+                (file_path.lower().endswith('.pcap') or 
+                 re.search(r'\.pcap\d*$', file_path.lower()))):
                 self.selected_files.append(file_path)
                 self.file_listbox.insert(tk.END, os.path.basename(file_path))
                 count_added += 1
@@ -248,40 +256,60 @@ class PcapDecrypterApp:
         # Get the file paths from the drop event
         data = event.data.strip()
         
-        # Clean up the data (remove {} and handle Windows paths)
-        data = re.sub(r'[{}]', '', data)
+        # Debug: Print raw drop data
+        print(f"Raw drop data: {data}")
         
-        # Split by space but handle quoted paths
+        # tkinterdnd2 provides paths in format: {path1} {path2} {path3}
+        # Extract all paths between { and }
         file_paths = []
-        current_path = []
-        in_quotes = False
         
-        i = 0
-        n = len(data)
+        # Split the data by spaces that are outside of curly braces
+        parts = []
+        current = []
+        in_braces = 0
         
-        while i < n:
-            if data[i] == '"':
-                in_quotes = not in_quotes
-                i += 1
+        for char in data:
+            if char == '{':
+                in_braces += 1
+                current.append(char)
+            elif char == '}':
+                in_braces -= 1
+                current.append(char)
+            elif char.isspace() and in_braces == 0:
+                if current:
+                    parts.append(''.join(current))
+                    current = []
+            else:
+                current.append(char)
+        
+        if current:  # Add the last part if exists
+            parts.append(''.join(current))
+        
+        # Process each part to extract the path
+        for part in parts:
+            part = part.strip()
+            if not part:
                 continue
                 
-            if data[i].isspace() and not in_quotes:
-                path = ''.join(current_path).strip()
-                if path:
-                    file_paths.append(path)
-                current_path = []
-            else:
-                current_path.append(data[i])
-            i += 1
+            # Remove surrounding {}
+            if part.startswith('{') and part.endswith('}'):
+                path = part[1:-1].strip()
+                # Convert to Windows path if it's using forward slashes
+                path = path.replace('/', '\\')
+                
+                # Convert to absolute path and check if it exists
+                try:
+                    abs_path = os.path.abspath(path)
+                    if os.path.exists(abs_path):
+                        file_paths.append(abs_path)
+                    else:
+                        print(f"Warning: Path does not exist: {abs_path}")
+                except Exception as e:
+                    print(f"Error processing path '{path}': {e}")
         
-        # Add the last path if exists
-        if current_path:
-            path = ''.join(current_path).strip()
-            if path:
-                file_paths.append(path)
-        
-        # Clean up Windows paths and remove empty entries
-        file_paths = [path.replace('\\', '/').strip('"') for path in file_paths if path.strip()]
+        # Add the processed files to the UI
+        if file_paths:
+            self.add_files(file_paths)
         
         # Add the files and update UI
         if file_paths:
@@ -308,6 +336,7 @@ class PcapDecrypterApp:
         """Extract F5 keylog data and format it properly"""
         try:
             # Run tshark to extract F5 keylog data
+            # Ensure input_file is properly passed as an argument
             result = subprocess.run(
                 [
                     'tshark',
@@ -318,7 +347,8 @@ class PcapDecrypterApp:
                 ],
                 capture_output=True,
                 text=True,
-                check=False  # Don't raise exception on non-zero exit code
+                check=False,  # Don't raise exception on non-zero exit code
+                shell=False
             )
             
             # Check if there was any error output that's not just a warning
@@ -353,6 +383,14 @@ class PcapDecrypterApp:
         failed_files = []
         last_successful_output = None
         
+        # Debug: Print current working directory
+        print(f"Current working directory: {os.getcwd()}")
+        print(f"Output directory: {output_dir}")
+        print("Selected files:")
+        for i, f in enumerate(self.selected_files, 1):
+            exists = "EXISTS" if os.path.exists(f) else "NOT FOUND"
+            print(f"  {i}. {f} ({exists})")
+        
         # Check if tshark is available before starting
         if not self.check_tshark_available():
             messagebox.showerror("Error", "tshark is not available. Please download Wireshark from https://www.wireshark.org/ and make sure tshark is in your system PATH.")
@@ -360,8 +398,16 @@ class PcapDecrypterApp:
         
         # Process each file
         for i, input_file in enumerate(self.selected_files, 1):
+            # Debug: Print full path being checked
+            print(f"\nProcessing file: {input_file}")
+            print(f"Absolute path: {os.path.abspath(input_file)}")
+            print(f"File exists: {os.path.exists(input_file)}")
+            print(f"Is file: {os.path.isfile(input_file)}")
+            
             if not os.path.isfile(input_file):
-                failed_files.append((input_file, "File not found"))
+                error_msg = f"File not found: {input_file} (Absolute: {os.path.abspath(input_file)})"
+                print(error_msg)
+                failed_files.append((input_file, error_msg))
                 continue
                 
             try:
@@ -391,13 +437,14 @@ class PcapDecrypterApp:
                     continue
                 
                 # Create decrypted pcap using editcap
+                # Using shell=False and passing arguments as a list to avoid shell injection
                 subprocess.run([
                     'editcap',
                     '--inject-secrets',
                     f'tls,{key_file}',
                     input_file,
                     output_file
-                ], check=True)
+                ], check=True, shell=False)
                 
                 success_count += 1
                 last_successful_output = output_file
