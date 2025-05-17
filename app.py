@@ -5,6 +5,14 @@ import subprocess
 import tempfile
 from pathlib import Path
 import shutil
+import re
+
+# Try to import tkinterdnd2, but make it optional
+try:
+    from tkinterdnd2 import TkinterDnD, DND_FILES
+    HAS_DND = True
+except ImportError:
+    HAS_DND = False
 
 
 class PcapDecrypterApp:
@@ -21,10 +29,21 @@ class PcapDecrypterApp:
         self.root.title("PCAP Decrypter")
         self.root.geometry("600x400")
         
+        # Store if we have drag and drop support
+        self.has_dnd = HAS_DND
+        
         # Configure styles
         style = ttk.Style()
         style.configure("TButton", padding=6)
         style.configure("TLabel", padding=6)
+        
+        # Set initial window size and minimum size
+        self.root.geometry("800x700")
+        self.root.minsize(700, 700)
+        
+        # Configure grid weights
+        self.root.grid_rowconfigure(0, weight=1)
+        self.root.grid_columnconfigure(0, weight=1)
         
         # Main container
         main_frame = ttk.Frame(root, padding="20")
@@ -39,27 +58,84 @@ class PcapDecrypterApp:
         title_label.pack(pady=10)
         
         # Instructions
-        instructions = ttk.Label(
+        self.instructions = ttk.Label(
             main_frame,
-            text="Select a PCAP file to decrypt SSL/TLS traffic",
+            text="Select PCAP files to decrypt SSL/TLS traffic",
             wraplength=500
         )
-        instructions.pack(pady=10)
+        self.instructions.pack(pady=5)
         
-        # File selection
-        file_frame = ttk.Frame(main_frame)
-        file_frame.pack(fill=tk.X, pady=10)
-        
-        self.file_path = tk.StringVar()
-        file_entry = ttk.Entry(file_frame, textvariable=self.file_path, width=50)
-        file_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
-        
-        browse_btn = ttk.Button(
-            file_frame, 
-            text="Browse...", 
-            command=self.browse_file
+        # Drag and drop hint
+        self.dnd_hint = ttk.Label(
+            main_frame,
+            text="Drag and drop PCAP files here or click 'Add Files' below",
+            foreground="gray",
+            wraplength=500
         )
-        browse_btn.pack(side=tk.RIGHT)
+        self.dnd_hint.pack(pady=5)
+        
+        # Selected files list
+        list_frame = ttk.Frame(main_frame)
+        list_frame.pack(fill=tk.BOTH, expand=True, pady=5)
+        
+        # Listbox with scrollbar for selected files
+        scrollbar = ttk.Scrollbar(list_frame)
+        self.file_listbox = tk.Listbox(
+            list_frame,
+            selectmode=tk.EXTENDED,
+            yscrollcommand=scrollbar.set,
+            height=8,
+            font=('TkDefaultFont', 10),
+            selectbackground='#4a6984',
+            selectforeground='#ffffff'
+        )
+        scrollbar.config(command=self.file_listbox.yview)
+        
+        self.file_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Button frame
+        button_frame = ttk.Frame(main_frame)
+        button_frame.pack(fill=tk.X, pady=5)
+        
+        # Add files button
+        add_btn = ttk.Button(
+            button_frame,
+            text="Add Files...",
+            command=self.browse_files
+        )
+        add_btn.pack(side=tk.LEFT, padx=2)
+        
+        # Remove selected button
+        remove_btn = ttk.Button(
+            button_frame,
+            text="Remove Selected",
+            command=self.remove_selected_files
+        )
+        remove_btn.pack(side=tk.LEFT, padx=2)
+        
+        # Clear all button
+        clear_btn = ttk.Button(
+            button_frame,
+            text="Clear All",
+            command=self.clear_files
+        )
+        clear_btn.pack(side=tk.LEFT, padx=2)
+        
+        # Store the list of files
+        self.selected_files = []
+        
+        # Configure drag and drop for the main window
+        if self.has_dnd:
+            from tkinterdnd2 import DND_FILES
+            self.root.drop_target_register(DND_FILES)
+            self.root.dnd_bind('<<Drop>>', self.on_drop)
+            
+            # Also make the listbox a drop target
+            self.file_listbox.drop_target_register(DND_FILES)
+            self.file_listbox.dnd_bind('<<Drop>>', self.on_drop)
+        
+
         
         # Status
         self.status_var = tk.StringVar()
@@ -83,7 +159,7 @@ class PcapDecrypterApp:
         # Process button
         self.process_btn = ttk.Button(
             main_frame,
-            text="Decrypt PCAP",
+            text="Decrypt PCAP Files",
             command=self.process_file,
             state=tk.DISABLED
         )
@@ -112,25 +188,118 @@ class PcapDecrypterApp:
         )
         self.open_btn.pack(side=tk.RIGHT)
         
-        # Bind file path changes
-        self.file_path.trace_add('write', self.check_file)
+        # Configure window for drag and drop if available
+        if self.has_dnd:
+            self.root.drop_target_register(DND_FILES)
+            self.root.dnd_bind('<<Drop>>', self.on_drop)
     
-    def browse_file(self):
-        file_path = filedialog.askopenfilename(
-            title="Select PCAP File",
+    def browse_files(self):
+        file_paths = filedialog.askopenfilenames(
+            title="Select PCAP Files",
             filetypes=[("PCAP files", "*.pcap"), ("All files", "*.*")]
         )
-        if file_path:
-            self.file_path.set(file_path)
+        if file_paths:
+            self.add_files(file_paths)
     
-    def check_file(self, *args):
-        file_path = self.file_path.get()
-        if file_path and os.path.isfile(file_path) and file_path.lower().endswith('.pcap'):
-            self.process_btn.config(state=tk.NORMAL)
-            self.status_var.set("Ready to decrypt")
+    def add_files(self, file_paths):
+        """Add files to the list if they're not already there"""
+        count_added = 0
+        for file_path in file_paths:
+            if file_path and file_path not in self.selected_files and file_path.lower().endswith('.pcap'):
+                self.selected_files.append(file_path)
+                self.file_listbox.insert(tk.END, os.path.basename(file_path))
+                count_added += 1
+        
+        if count_added > 0:
+            self.update_ui_state()
+            self.status_var.set(f"Added {count_added} file(s)")
+        return count_added > 0
+    
+    def remove_selected_files(self):
+        """Remove selected files from the list"""
+        selected_indices = list(self.file_listbox.curselection())
+        if not selected_indices:
+            return
+            
+        # Remove from the end to avoid index shifting issues
+        for i in sorted(selected_indices, reverse=True):
+            if 0 <= i < len(self.selected_files):
+                del self.selected_files[i]
+                self.file_listbox.delete(i)
+        
+        self.update_ui_state()
+        self.status_var.set(f"Removed {len(selected_indices)} file(s)")
+    
+    def clear_files(self):
+        """Clear all files from the list"""
+        if not self.selected_files:
+            return
+            
+        self.selected_files.clear()
+        self.file_listbox.delete(0, tk.END)
+        self.update_ui_state()
+        self.status_var.set("Cleared all files")
+    
+    def on_drop(self, event):
+        """Handle file drop event"""
+        # Get the file paths from the drop event
+        data = event.data.strip()
+        
+        # Clean up the data (remove {} and handle Windows paths)
+        data = re.sub(r'[{}]', '', data)
+        
+        # Split by space but handle quoted paths
+        file_paths = []
+        current_path = []
+        in_quotes = False
+        
+        i = 0
+        n = len(data)
+        
+        while i < n:
+            if data[i] == '"':
+                in_quotes = not in_quotes
+                i += 1
+                continue
+                
+            if data[i].isspace() and not in_quotes:
+                path = ''.join(current_path).strip()
+                if path:
+                    file_paths.append(path)
+                current_path = []
+            else:
+                current_path.append(data[i])
+            i += 1
+        
+        # Add the last path if exists
+        if current_path:
+            path = ''.join(current_path).strip()
+            if path:
+                file_paths.append(path)
+        
+        # Clean up Windows paths and remove empty entries
+        file_paths = [path.replace('\\', '/').strip('"') for path in file_paths if path.strip()]
+        
+        # Add the files and update UI
+        if file_paths:
+            if self.add_files(file_paths):
+                self.dnd_hint.config(text=f"Added {len(file_paths)} file(s)! Drag and drop more or click 'Decrypt PCAP' when ready.", 
+                                   foreground="green")
+                self.root.after(3000, lambda: self.dnd_hint.config(
+                    text="Drag and drop PCAP files here or click 'Add Files' below",
+                    foreground="gray"
+                ))
+    
+    def update_ui_state(self):
+        """Update the UI based on current state"""
+        has_files = len(self.selected_files) > 0
+        self.process_btn.config(state=tk.NORMAL if has_files else tk.DISABLED)
+        
+        if has_files:
+            count = len(self.selected_files)
+            self.status_var.set(f"Ready to decrypt {count} file{'s' if count > 1 else ''}")
         else:
-            self.process_btn.config(state=tk.DISABLED)
-            self.status_var.set("Please select a valid PCAP file")
+            self.status_var.set("No files selected")
     
     def extract_f5_keylog(self, input_file, key_file):
         """Extract F5 keylog data and format it properly"""
@@ -169,87 +338,137 @@ class PcapDecrypterApp:
             return False, f"Error processing F5 keylog: {str(e)}"
 
     def process_file(self):
-        input_file = self.file_path.get()
-        if not input_file or not os.path.isfile(input_file):
-            messagebox.showerror("Error", "Please select a valid PCAP file")
+        if not self.selected_files:
+            messagebox.showwarning("Warning", "No files selected")
             return
-        
-        self.progress['value'] = 0
-        self.status_var.set("Processing...")
-        self.root.update_idletasks()
-        
+            
+        # Create output directory if it doesn't exist
         output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "decrypted_pcaps")
         os.makedirs(output_dir, exist_ok=True)
         
-        output_file = os.path.join(
-            output_dir,
-            f"decrypted_{os.path.basename(input_file)}"
-        )
+        success_count = 0
+        failed_files = []
+        last_successful_output = None
         
-        key_file = os.path.join(tempfile.gettempdir(), 'ssl-keys.txt')
+        # Check if tshark is available before starting
+        if not self.check_tshark_available():
+            messagebox.showerror("Error", "tshark is not available. Please download Wireshark from https://www.wireshark.org/ and make sure tshark is in your system PATH.")
+            return
         
-        try:
-            # Update progress
-            self.progress['value'] = 20
-            self.root.update_idletasks()
-            
-            # Check if tshark is available before proceeding
-            if not self.check_tshark_available():
-                messagebox.showerror("Error", "tshark is not available. Please download Wireshark from https://www.wireshark.org/ and make sure tshark is in your system PATH.")
-                return
-
-            # Extract F5 keylog data
-            success, message = self.extract_f5_keylog(input_file, key_file)
-            
-            if not success:
-                raise Exception(f"Failed to extract F5 keylog data: {message}")
+        # Process each file
+        for i, input_file in enumerate(self.selected_files, 1):
+            if not os.path.isfile(input_file):
+                failed_files.append((input_file, "File not found"))
+                continue
                 
-            # Check if key file is not empty
-            if os.path.getsize(key_file) == 0:
-                raise Exception("No F5 keylog data was found in the PCAP file")
+            try:
+                # Update progress
+                progress = (i / len(self.selected_files)) * 100
+                self.progress['value'] = progress
+                self.status_var.set(f"Processing {i} of {len(self.selected_files)}: {os.path.basename(input_file)}")
+                self.root.update_idletasks()
                 
-            self.progress['value'] = 60
-            self.root.update_idletasks()
-            
-            # Create decrypted pcap using editcap
-            subprocess.run([
-                'editcap',
-                '--inject-secrets',
-                f'tls,{key_file}',
-                input_file,
-                output_file
-            ], check=True)
-            
-            self.progress['value'] = 100
-            self.status_var.set("Decryption completed successfully")
-            self.output_path.set(output_file)
+                output_file = os.path.join(
+                    output_dir,
+                    f"decrypted_{os.path.basename(input_file)}"
+                )
+                
+                key_file = os.path.join(tempfile.gettempdir(), 'ssl-keys.txt')
+                
+                # Extract F5 keylog data
+                success, message = self.extract_f5_keylog(input_file, key_file)
+                
+                if not success:
+                    failed_files.append((input_file, f"Keylog extraction failed: {message}"))
+                    continue
+                    
+                # Check if key file is not empty
+                if os.path.getsize(key_file) == 0:
+                    failed_files.append((input_file, "No F5 keylog data found"))
+                    continue
+                
+                # Create decrypted pcap using editcap
+                subprocess.run([
+                    'editcap',
+                    '--inject-secrets',
+                    f'tls,{key_file}',
+                    input_file,
+                    output_file
+                ], check=True)
+                
+                success_count += 1
+                last_successful_output = output_file
+                
+            except subprocess.CalledProcessError as e:
+                failed_files.append((input_file, f"Decryption failed: {str(e)}"))
+            except Exception as e:
+                failed_files.append((input_file, f"Error: {str(e)}"))
+        
+        # Update UI after processing
+        self.progress['value'] = 100
+        self.status_var.set("Processing completed")
+        self.root.update_idletasks()
+        
+        # Build result message
+        result_message = []
+        
+        if success_count > 0:
+            result_message.append(f"✅ Successfully processed {success_count} file{'s' if success_count > 1 else ''}.")
+            self.output_path.set(os.path.dirname(last_successful_output))
             self.open_btn.config(state=tk.NORMAL)
+        
+        if failed_files:
+            result_message.append(f"❌ Failed to process {len(failed_files)} file{'s' if len(failed_files) > 1 else ''}:")
+            max_errors = 5  # Show max 5 errors in the dialog
+            for i, (file, error) in enumerate(failed_files[:max_errors], 1):
+                result_message.append(f"   {i}. {os.path.basename(file)}: {error}")
             
-            if messagebox.askyesno(
-                "Success", 
-                "PCAP file decrypted successfully!\n\n" +
-                f"Output file: {output_file}\n\n" +
-                "Would you like to open the output folder?"
-            ):
-                self.open_output_folder()
-            
-            self.status_var.set("Decryption completed successfully")
-            
-        except subprocess.CalledProcessError as e:
-            messagebox.showerror(
-                "Error", 
-                f"Failed to process PCAP file:\n{str(e)}"
+            if len(failed_files) > max_errors:
+                result_message.append(f"   ... and {len(failed_files) - max_errors} more errors (see console for details)")
+                
+            # Log all errors to console
+            print("\nDetailed error log:")
+            for file, error in failed_files:
+                print(f"Failed to process {file}: {error}")
+        
+        # Show result dialog
+        if success_count > 0 or failed_files:
+            messagebox.showinfo(
+                "Processing Complete",
+                "\n".join(result_message)
             )
-            self.status_var.set("Error processing file")
-            self.progress['value'] = 0
+        
+        # Ask to open output folder if any files were successfully processed
+        if success_count > 0 and messagebox.askyesno(
+            "Success",
+            "Would you like to open the output folder?"
+        ):
+            self.open_output_folder()
+        
+        # Reset progress
+        self.progress['value'] = 0
     
     def open_output_folder(self):
         output_path = self.output_path.get()
-        if output_path and os.path.isfile(output_path):
-            folder_path = os.path.dirname(output_path)
-            os.startfile(folder_path)
+        if output_path:
+            # Check if the path is a file or directory and open its parent directory
+            if os.path.isfile(output_path):
+                folder_path = os.path.dirname(output_path)
+            else:
+                folder_path = output_path
+                
+            try:
+                os.startfile(folder_path)
+            except Exception as e:
+                messagebox.showerror("Error", f"Could not open folder: {str(e)}")
 
 if __name__ == '__main__':
-    root = tk.Tk()
+    # Create the appropriate root window based on available modules
+    if HAS_DND:
+        root = TkinterDnD.Tk()
+    else:
+        root = tk.Tk()
+        print("tkinterdnd2 not available. Drag and drop will be disabled.")
+    
     app = PcapDecrypterApp(root)
     root.mainloop()
