@@ -1,2 +1,2 @@
-pyinstaller==6.13.0
-tkinterdnd2==0.4.3
+PySide6>=6.5.0
+qt-material>=2.14.1
