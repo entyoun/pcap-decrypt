@@ -41,8 +41,8 @@ class PcapDecrypterApp:
         style.configure("TLabel", padding=6)
         
         # Set initial window size and minimum size
-        self.root.geometry("800x700")
-        self.root.minsize(700, 700)
+        self.root.geometry("800x800")
+        self.root.minsize(700, 800)
         
         # Configure grid weights
         self.root.grid_rowconfigure(0, weight=1)
@@ -170,18 +170,43 @@ class PcapDecrypterApp:
         
         # Output path
         self.output_path = tk.StringVar()
+        self.use_custom_output = tk.BooleanVar(value=False)
+        
         output_frame = ttk.Frame(main_frame)
         output_frame.pack(fill=tk.X, pady=10)
         
-        ttk.Label(output_frame, text="Output:").pack(anchor=tk.W)
+        # Output directory selection
+        output_dir_frame = ttk.Frame(output_frame)
+        output_dir_frame.pack(fill=tk.X, pady=5)
+        
+        ttk.Label(output_dir_frame, text="Output Directory:").pack(anchor=tk.W)
         
         output_entry = ttk.Entry(
-            output_frame, 
-            textvariable=self.output_path, 
+            output_dir_frame,
+            textvariable=self.output_path,
             state='readonly',
             width=50
         )
         output_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
+        
+        browse_btn = ttk.Button(
+            output_dir_frame,
+            text="Browse...",
+            command=self.browse_output_dir
+        )
+        browse_btn.pack(side=tk.LEFT, padx=(0, 5))
+        
+        # Use custom output directory checkbox
+        self.custom_output_cb = ttk.Checkbutton(
+            output_frame,
+            text="Use custom output directory (uncheck to save in same directory as input file)",
+            variable=self.use_custom_output,
+            command=self.toggle_output_dir
+        )
+        self.custom_output_cb.pack(anchor=tk.W, pady=5)
+        
+        # Set initial state
+        self.toggle_output_dir()
         
         self.open_btn = ttk.Button(
             output_frame,
@@ -370,22 +395,39 @@ class PcapDecrypterApp:
         except Exception as e:
             return False, f"Error processing F5 keylog: {str(e)}"
 
+    def browse_output_dir(self):
+        """Open a dialog to select output directory"""
+        initial_dir = self.output_path.get() or os.path.expanduser('~')
+        selected_dir = filedialog.askdirectory(
+            title="Select Output Directory",
+            initialdir=initial_dir
+        )
+        if selected_dir:
+            self.output_path.set(selected_dir)
+    
+    def toggle_output_dir(self):
+        """Toggle between custom and default output directory"""
+        if not self.use_custom_output.get():
+            # When unchecking, clear the output path
+            self.output_path.set("")
+    
+    def get_output_dir(self, input_file):
+        """Get the output directory based on user preference"""
+        if self.use_custom_output.get() and self.output_path.get():
+            return self.output_path.get()
+        return os.path.dirname(os.path.abspath(input_file))
+    
     def process_file(self):
         if not self.selected_files:
             messagebox.showwarning("Warning", "No files selected")
             return
             
-        # Create output directory if it doesn't exist
-        output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "decrypted_pcaps")
-        os.makedirs(output_dir, exist_ok=True)
-        
         success_count = 0
         failed_files = []
         last_successful_output = None
         
         # Debug: Print current working directory
         print(f"Current working directory: {os.getcwd()}")
-        print(f"Output directory: {output_dir}")
         print("Selected files:")
         for i, f in enumerate(self.selected_files, 1):
             exists = "EXISTS" if os.path.exists(f) else "NOT FOUND"
@@ -416,6 +458,10 @@ class PcapDecrypterApp:
                 self.progress['value'] = progress
                 self.status_var.set(f"Processing {i} of {len(self.selected_files)}: {os.path.basename(input_file)}")
                 self.root.update_idletasks()
+                
+                # Get output directory based on user preference
+                output_dir = self.get_output_dir(input_file)
+                os.makedirs(output_dir, exist_ok=True)
                 
                 output_file = os.path.join(
                     output_dir,
