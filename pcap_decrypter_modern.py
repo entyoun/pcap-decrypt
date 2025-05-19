@@ -45,6 +45,18 @@ class DropListWidget(QListWidget):
 class PcapDecrypter(QMainWindow):
     def __init__(self):
         super().__init__()
+        # Set window icon for Windows (works with PyInstaller --onefile too)
+        from PySide6.QtGui import QIcon
+        import sys, os
+        if getattr(sys, 'frozen', False):
+            base_path = sys._MEIPASS
+        else:
+            base_path = os.path.abspath('.')
+        icon_path = os.path.join(base_path, 'assets', 'icon.ico')
+        if os.path.exists(icon_path):
+            self.setWindowIcon(QIcon(icon_path))
+        else:
+            print(f'Warning: icon.ico not found at {icon_path}')
         self.setWindowTitle("PCAP Decrypter")
         self.setMinimumSize(800, 700)
         

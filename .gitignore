@@ -4,4 +4,4 @@ upload/*
 decrypted_pcaps
 build
 dist
-app.spec
+*.spec
