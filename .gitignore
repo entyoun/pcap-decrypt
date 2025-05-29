@@ -5,3 +5,4 @@ decrypted_pcaps
 build
 dist
 *.spec
+build-windows.bat
