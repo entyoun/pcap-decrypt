@@ -1,5 +1,6 @@
 import sys
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -113,7 +114,7 @@ class PcapDecrypter(QMainWindow):
         self.main_layout.addLayout(header)
         
         # Modern, simple drag-and-drop area with centered placeholder
-        self.file_list = DropListWidget("Drag and drop PCAP files here\nSupports .pcap and .pcapng")
+        self.file_list = DropListWidget("Drag and drop PCAP files here\nSupports .pcap* and .pcapng* (e.g. .pcap0, .pcapng45)")
         self.file_list.setStyleSheet("""
             QListWidget {
                 border: 2px dashed #42a5f5;
@@ -227,8 +228,8 @@ class PcapDecrypter(QMainWindow):
     
     def dropEvent(self, event: QDropEvent):
         if event.mimeData().hasUrls():
-            files = [url.toLocalFile() for url in event.mimeData().urls() 
-                    if url.isLocalFile() and url.toLocalFile().lower().endswith(('.pcap', '.pcapng'))]
+            files = [url.toLocalFile() for url in event.mimeData().urls()
+         if url.isLocalFile() and re.search(r"\.pcap(ng)?\d*$", url.toLocalFile().lower())]
             self.add_files(files)
             event.acceptProposedAction()
     
@@ -237,7 +238,7 @@ class PcapDecrypter(QMainWindow):
             self,
             "Select PCAP Files",
             "",
-            "PCAP Files (*.pcap *.pcapng);;All Files (*)"
+            "PCAP Files (*.pcap* *.pcapng*);;All Files (*)"
         )
         if files:
             self.add_files(files)
