@@ -6,3 +6,5 @@ build
 dist
 *.spec
 build-windows.bat
+__pycache__
+.claude

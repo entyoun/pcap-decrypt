@@ -6,105 +6,137 @@ import subprocess
 import tempfile
 import logging
 from pathlib import Path
-from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QPushButton, QListWidget, QFileDialog, QProgressBar, QMessageBox, QCheckBox,
-    QLineEdit, QFrame, QSizePolicy, QStyle
-)
-from PySide6.QtCore import Qt, QSize, QSettings, QThread, Signal, QObject, QTimer
-from PySide6.QtGui import QFont, QDragEnterEvent, QDropEvent, QPalette, QColor, QPainter, QPen
 
 # Suppress qt-material 'Fusion style does not exist' warnings
 logging.getLogger('root').setLevel(logging.ERROR)
 
-# Import qt-material after suppressing warnings
-from qt_material import apply_stylesheet
+# Lazy imports - only import when needed
+def get_qt_imports():
+    """Lazy import of Qt modules to speed up startup"""
+    from PySide6.QtWidgets import (
+        QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
+        QPushButton, QListWidget, QFileDialog, QProgressBar, QMessageBox, QCheckBox,
+        QLineEdit, QFrame, QSizePolicy, QStyle
+    )
+    from PySide6.QtCore import Qt, QSize, QSettings, QThread, Signal, QObject, QTimer
+    from PySide6.QtGui import QFont, QDragEnterEvent, QDropEvent, QPalette, QColor, QPainter, QPen, QIcon
+    from qt_material import apply_stylesheet
+    
+    return {
+        'QApplication': QApplication, 'QMainWindow': QMainWindow, 'QWidget': QWidget,
+        'QVBoxLayout': QVBoxLayout, 'QHBoxLayout': QHBoxLayout, 'QLabel': QLabel,
+        'QPushButton': QPushButton, 'QListWidget': QListWidget, 'QFileDialog': QFileDialog,
+        'QProgressBar': QProgressBar, 'QMessageBox': QMessageBox, 'QCheckBox': QCheckBox,
+        'QLineEdit': QLineEdit, 'QFrame': QFrame, 'QSizePolicy': QSizePolicy, 'QStyle': QStyle,
+        'Qt': Qt, 'QSize': QSize, 'QSettings': QSettings, 'QThread': QThread,
+        'Signal': Signal, 'QObject': QObject, 'QTimer': QTimer,
+        'QFont': QFont, 'QDragEnterEvent': QDragEnterEvent, 'QDropEvent': QDropEvent,
+        'QPalette': QPalette, 'QColor': QColor, 'QPainter': QPainter, 'QPen': QPen, 'QIcon': QIcon,
+        'apply_stylesheet': apply_stylesheet
+    }
 
-class WorkerSignals(QObject):
+# Global cache for Qt imports
+_qt_cache = None
+
+def qt():
+    """Get cached Qt imports"""
+    global _qt_cache
+    if _qt_cache is None:
+        _qt_cache = get_qt_imports()
+    return _qt_cache
+
+class WorkerSignals(qt()['QObject']):
     """Defines the signals available from a running worker thread."""
-    progress = Signal(int)
-    status = Signal(str)
-    finished = Signal()
-    error = Signal(str)
+    def __init__(self):
+        super().__init__()
+        self.progress = qt()['Signal'](int)
+        self.status = qt()['Signal'](str)
+        self.finished = qt()['Signal']()
+        self.error = qt()['Signal'](str)
 
-class DropListWidget(QListWidget):
+class DropListWidget(qt()['QListWidget']):
     """A QListWidget with centered placeholder when empty."""
     def __init__(self, placeholder_text='', *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.placeholder_text = placeholder_text
         self.setAcceptDrops(True)
-        self.setDragDropMode(QListWidget.DropOnly)
+        self.setDragDropMode(qt()['QListWidget'].DropOnly)
 
     def paintEvent(self, event):
         super().paintEvent(event)
         if self.count() == 0 and self.placeholder_text:
-            painter = QPainter(self.viewport())
-            painter.setPen(QPen(QColor('#90caf9')))
+            painter = qt()['QPainter'](self.viewport())
+            painter.setPen(qt()['QPen'](qt()['QColor']('#90caf9')))
             painter.setFont(self.font())
-            painter.drawText(self.viewport().rect(), Qt.AlignCenter, self.placeholder_text)
+            painter.drawText(self.viewport().rect(), qt()['Qt'].AlignCenter, self.placeholder_text)
 
-class PcapDecrypter(QMainWindow):
+class PcapDecrypter(qt()['QMainWindow']):
     def __init__(self):
         super().__init__()
-        # Set window icon for Windows (works with PyInstaller --onefile too)
-        from PySide6.QtGui import QIcon
-        import sys, os
-        if getattr(sys, 'frozen', False):
-            base_path = sys._MEIPASS
-        else:
-            base_path = os.path.abspath('.')
-        icon_path = os.path.join(base_path, 'assets', 'icon.ico')
-        if os.path.exists(icon_path):
-            self.setWindowIcon(QIcon(icon_path))
-        else:
-            print(f'Warning: icon.ico not found at {icon_path}')
+        
+        # Basic window setup
         self.setWindowTitle("PCAP Decrypter")
         self.setMinimumSize(800, 700)
         
-        # Initialize settings
-        self.settings = QSettings("PCAPDecrypter", "PCAPDecrypter")
-        
-        # Main widget and layout
-        self.central_widget = QWidget()
-        self.setCentralWidget(self.central_widget)
-        self.main_layout = QVBoxLayout(self.central_widget)
-        self.main_layout.setContentsMargins(15, 15, 15, 15)
-        self.main_layout.setSpacing(15)
-        
-        # Initialize output directory and user preference tracking
+        # Initialize basic properties
         self.output_dir = os.path.expanduser("~")
         self.output_dir_set_by_user = False
         
-        # Apply dark_blue theme before UI is created
+        # Defer heavy initialization
+        qt()['QTimer'].singleShot(10, self._initialize_ui)
+    
+    def _initialize_ui(self):
+        """Initialize UI components with lazy loading"""
+        # Set window icon
+        self._set_window_icon()
+        
+        # Initialize settings
+        self.settings = qt()['QSettings']("PCAPDecrypter", "PCAPDecrypter")
+        
+        # Apply theme
         self.apply_base_theme()
+        
+        # Create main widget and layout
+        self.central_widget = qt()['QWidget']()
+        self.setCentralWidget(self.central_widget)
+        self.main_layout = qt()['QVBoxLayout'](self.central_widget)
+        self.main_layout.setContentsMargins(15, 15, 15, 15)
+        self.main_layout.setSpacing(15)
         
         # Initialize UI
         self.init_ui()
         
-        # Load saved settings after UI is initialized
+        # Load saved settings
         self.load_settings()
-        
-
+    
+    def _set_window_icon(self):
+        """Set window icon with error handling"""
+        try:
+            if getattr(sys, 'frozen', False):
+                base_path = sys._MEIPASS
+            else:
+                base_path = os.path.abspath('.')
+            icon_path = os.path.join(base_path, 'assets', 'icon.ico')
+            if os.path.exists(icon_path):
+                self.setWindowIcon(qt()['QIcon'](icon_path))
+        except Exception:
+            pass  # Silently fail icon loading
     
     def apply_base_theme(self):
-        """Apply the dark blue theme before the UI is fully initialized"""
+        """Apply the dark blue theme"""
         try:
-            # Always use dark_blue theme
-            apply_stylesheet(self, theme='dark_blue.xml', css_file=None)
+            qt()['apply_stylesheet'](self, theme='dark_blue.xml', css_file=None)
         except Exception as e:
             print(f"Error applying theme: {str(e)}")
-    
-    
-    # Theme-related methods removed since we always use dark_blue.xml
     
     def init_ui(self):
         """Initialize the user interface"""
         # Header with title
-        header = QHBoxLayout()
+        header = qt()['QHBoxLayout']()
         
         # Title
-        title = QLabel("PCAP Decrypter")
-        title_font = QFont()
+        title = qt()['QLabel']("PCAP Decrypter")
+        title_font = qt()['QFont']()
         title_font.setPointSize(18)
         title_font.setBold(True)
         title.setFont(title_font)
@@ -135,18 +167,18 @@ class PcapDecrypter(QMainWindow):
         self.main_layout.addWidget(self.file_list)
         
         # Button layout
-        button_layout = QHBoxLayout()
+        button_layout = qt()['QHBoxLayout']()
         
-        self.add_btn = QPushButton("Add Files")
-        self.add_btn.setIcon(self.style().standardIcon(QStyle.SP_DialogOpenButton))
+        self.add_btn = qt()['QPushButton']("Add Files")
+        self.add_btn.setIcon(self.style().standardIcon(qt()['QStyle'].SP_DialogOpenButton))
         self.add_btn.clicked.connect(self.browse_files)
         
-        self.remove_btn = QPushButton("Remove Selected")
-        self.remove_btn.setIcon(self.style().standardIcon(QStyle.SP_TrashIcon))
+        self.remove_btn = qt()['QPushButton']("Remove Selected")
+        self.remove_btn.setIcon(self.style().standardIcon(qt()['QStyle'].SP_TrashIcon))
         self.remove_btn.clicked.connect(self.remove_selected_files)
         
-        self.clear_btn = QPushButton("Clear All")
-        self.clear_btn.setIcon(self.style().standardIcon(QStyle.SP_DialogResetButton))
+        self.clear_btn = qt()['QPushButton']("Clear All")
+        self.clear_btn.setIcon(self.style().standardIcon(qt()['QStyle'].SP_DialogResetButton))
         self.clear_btn.clicked.connect(self.clear_files)
         
         button_layout.addWidget(self.add_btn)
@@ -157,19 +189,19 @@ class PcapDecrypter(QMainWindow):
         self.main_layout.addLayout(button_layout)
         
         # Output directory section
-        output_label = QLabel("Output Directory:")
+        output_label = qt()['QLabel']("Output Directory:")
         output_label.setStyleSheet("font-weight: bold; margin-top: 15px;")
-        self.main_layout.addWidget(output_label, alignment=Qt.AlignLeft)
+        self.main_layout.addWidget(output_label, alignment=qt()['Qt'].AlignLeft)
         
         # Output path and browse button
-        path_layout = QHBoxLayout()
+        path_layout = qt()['QHBoxLayout']()
         
-        self.output_path_edit = QLineEdit()
+        self.output_path_edit = qt()['QLineEdit']()
         self.output_path_edit.setReadOnly(True)
         self.output_path_edit.setStyleSheet("")
         self.output_path_edit.setPlaceholderText("Files will be saved in the same directory as the input PCAP")
         
-        browse_btn = QPushButton("Change...")
+        browse_btn = qt()['QPushButton']("Change...")
         browse_btn.setMinimumWidth(100)
         browse_btn.clicked.connect(self.browse_output_dir)
         
@@ -179,7 +211,7 @@ class PcapDecrypter(QMainWindow):
         self.main_layout.addLayout(path_layout)
         
         # Progress
-        self.progress = QProgressBar()
+        self.progress = qt()['QProgressBar']()
         self.progress.setRange(0, 100)
         self.progress.setTextVisible(True)
         self.progress.setStyleSheet("""
@@ -198,20 +230,19 @@ class PcapDecrypter(QMainWindow):
         self.main_layout.addWidget(self.progress)
         
         # Status
-        self.status_label = QLabel()
+        self.status_label = qt()['QLabel']()
         self.status_label.setWordWrap(True)
-        self.status_label.setAlignment(Qt.AlignCenter)
+        self.status_label.setAlignment(qt()['Qt'].AlignCenter)
         self.status_label.setStyleSheet("color: #2e7d32; font-style: italic;")
         self.main_layout.addWidget(self.status_label)
         
         # Process button
-        self.process_btn = QPushButton("Decrypt PCAP Files")
+        self.process_btn = qt()['QPushButton']("Decrypt PCAP Files")
         self.process_btn.setEnabled(False)
         self.process_btn.setMinimumWidth(200)
-        # Remove custom teal style, let qt-material theme handle button appearance
         self.process_btn.setStyleSheet("")
         self.process_btn.clicked.connect(self.process_files)
-        self.main_layout.addWidget(self.process_btn, 0, Qt.AlignCenter)
+        self.main_layout.addWidget(self.process_btn, 0, qt()['Qt'].AlignCenter)
         
         # Enable drag and drop
         self.setAcceptDrops(True)
@@ -222,11 +253,11 @@ class PcapDecrypter(QMainWindow):
         # Update UI state
         self.update_ui_state()
     
-    def dragEnterEvent(self, event: QDragEnterEvent):
+    def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
             event.acceptProposedAction()
     
-    def dropEvent(self, event: QDropEvent):
+    def dropEvent(self, event):
         if event.mimeData().hasUrls():
             files = [url.toLocalFile() for url in event.mimeData().urls()
          if url.isLocalFile() and re.search(r"\.pcap(ng)?\d*$", url.toLocalFile().lower())]
@@ -234,7 +265,7 @@ class PcapDecrypter(QMainWindow):
             event.acceptProposedAction()
     
     def browse_files(self):
-        files, _ = QFileDialog.getOpenFileNames(
+        files, _ = qt()['QFileDialog'].getOpenFileNames(
             self,
             "Select PCAP Files",
             "",
@@ -273,7 +304,7 @@ class PcapDecrypter(QMainWindow):
     
     def browse_output_dir(self):
         current_dir = self.output_dir if hasattr(self, 'output_dir') else os.path.expanduser("~")
-        dir_path = QFileDialog.getExistingDirectory(
+        dir_path = qt()['QFileDialog'].getExistingDirectory(
             self, 
             "Select Output Directory",
             current_dir
@@ -355,23 +386,23 @@ class PcapDecrypter(QMainWindow):
     def process_files(self):
         """Process the selected PCAP files"""
         if not self.check_tshark_available():
-            QMessageBox.critical(
+            qt()['QMessageBox'].critical(
                 self,
                 "Error",
                 "Wireshark's tshark not found in PATH. Please install Wireshark and ensure it's in your system PATH.",
-                QMessageBox.Ok
+                qt()['QMessageBox'].Ok
             )
             return
         
         if self.file_list.count() == 0:
-            QMessageBox.warning(self, "No Files", "No PCAP files selected!")
+            qt()['QMessageBox'].warning(self, "No Files", "No PCAP files selected!")
             return
         
         # Disable UI during processing
         self.setEnabled(False)
         self.status_label.setText("Processing files...")
         self.progress.setValue(0)
-        QApplication.processEvents()
+        qt()['QApplication'].processEvents()
         
         success_count = 0
         failed_files = []
@@ -392,7 +423,7 @@ class PcapDecrypter(QMainWindow):
                 progress = int((i / total_files) * 100)
                 self.progress.setValue(progress)
                 self.status_label.setText(f"Processing {i+1} of {total_files}: {file_name}")
-                QApplication.processEvents()
+                qt()['QApplication'].processEvents()
                 
                 try:
                     if not os.path.isfile(input_file):
@@ -456,20 +487,20 @@ class PcapDecrypter(QMainWindow):
             
             # Show result dialog
             if success_count > 0 or failed_files:
-                QMessageBox.information(
+                qt()['QMessageBox'].information(
                     self,
                     "Processing Complete",
                     "\n".join(result_message)
                 )
             
             # Ask to open output folder if any files were successfully processed
-            if success_count > 0 and QMessageBox.question(
+            if success_count > 0 and qt()['QMessageBox'].question(
                 self,
                 "Success",
                 "Would you like to open the output folder?",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.Yes
-            ) == QMessageBox.Yes:
+                qt()['QMessageBox'].Yes | qt()['QMessageBox'].No,
+                qt()['QMessageBox'].Yes
+            ) == qt()['QMessageBox'].Yes:
                 output_path = os.path.abspath(os.path.dirname(last_successful_output))
                 if os.name == 'nt':  # Windows
                     os.startfile(output_path)
@@ -484,13 +515,15 @@ class PcapDecrypter(QMainWindow):
             self.status_label.setText("Processing complete!")
             
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"An error occurred: {str(e)}")
+            qt()['QMessageBox'].critical(self, "Error", f"An error occurred: {str(e)}")
         
         finally:
             # Re-enable UI
             self.setEnabled(True)
 
 def main():
+    # Create QApplication first, before any Qt imports
+    from PySide6.QtWidgets import QApplication
     app = QApplication(sys.argv)
     
     # Set application info
